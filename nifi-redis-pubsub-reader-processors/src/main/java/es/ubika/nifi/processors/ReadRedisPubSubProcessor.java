@@ -61,7 +61,7 @@ public class ReadRedisPubSubProcessor extends AbstractRedisProcessor {
 
     private volatile LinkedBlockingQueue<RedisMessage> redisQueue;
 
-    private final AtomicBoolean scheduled = new AtomicBoolean(false);
+    private final AtomicBoolean initialized = new AtomicBoolean(false);
 
     @Override
     protected void init(final ProcessorInitializationContext context) {
@@ -85,16 +85,12 @@ public class ReadRedisPubSubProcessor extends AbstractRedisProcessor {
 
     @OnScheduled
     public void onScheduled(final ProcessContext context) {
-        if(redisQueue == null) {
-            redisQueue = new LinkedBlockingQueue<>();
-        }
-        buildClient(context);
-        scheduled.set(true);
+
     }
 
     @OnUnscheduled
     public void onUnscheduled(final ProcessContext context) {
-        scheduled.set(false);
+        initialized.set(false);
         clientConnectLock.writeLock().lock();
         if(isCluster) {
             redisClusterConn.addListener(new RedisPubSubClusterCallback());
@@ -139,7 +135,14 @@ public class ReadRedisPubSubProcessor extends AbstractRedisProcessor {
 
     @Override
     public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
-        if (redisQueue.isEmpty() && scheduled.get() && !isSubscribed) {
+        if(!initialized.get() || redisConn == null) {
+            buildClient(context);
+            initialized.set(true);
+        }
+        if(redisQueue == null) {
+            redisQueue = new LinkedBlockingQueue<>();
+        }
+        if (redisQueue.isEmpty() && initialized.get() && !isSubscribed) {
             logger.info("Creating subscription to PubSub queue.");
             if(isCluster) {
                 redisClusterConn.addListener(new RedisPubSubClusterCallback());
